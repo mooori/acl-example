@@ -3,10 +3,8 @@
 // - add init of `acl_*` struct fields in contracts `#[init]` resp. `Default`
 // - disuss: should enumeration be opt-in or opt-out?
 
-use std::marker::PhantomData;
-
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::collections::{LookupMap, LookupSet, UnorderedSet, Vector};
+use near_sdk::collections::{TreeMap, UnorderedSet, Vector};
 use near_sdk::{env, near_bindgen, AccountId, BorshStorageKey};
 use strum::IntoEnumIterator;
 
@@ -44,31 +42,26 @@ pub struct Counter {
     // separation might facilitate testing and maintenance.
     //
     // Makes sense?
-    acl_role_admins: ACLRoleAdmins<Role>,
-    acl_role_grants: ACLRoleGrants<Role>,
+    acl: Acl<Role>,
 }
 
 #[near_bindgen]
 impl Counter {
     #[init]
     pub fn new() -> Self {
-        let mut admins = ACLRoleAdmins::new();
+        let mut acl = Acl::new();
         let caller = env::predecessor_account_id();
         for role in Role::iter() {
-            admins.add_admin_unchecked(role, &caller);
+            acl.add_admin_unchecked(role, &caller);
         }
 
-        Self {
-            counter: 0,
-            acl_role_admins: admins,
-            acl_role_grants: ACLRoleGrants::new(),
-        }
+        Self { counter: 0, acl }
     }
 }
 
 // TODO enable opt-out of enumerable collections (efficiency)
 #[derive(BorshDeserialize, BorshSerialize)]
-struct ACLRoleAdmins<R> {
+struct Acl<R> {
     /// Stores the set of `AccountId`s which are admins for roles (the variants
     /// of `R`).
     ///
@@ -85,12 +78,11 @@ struct ACLRoleAdmins<R> {
     /// ```
     admins: Vector<UnorderedSet<AccountId>>,
     // TODO get rid of invariant and vector. Instead get_admins_set is private and any modifications of set are not stored.
-    /// Create a tie to a specific role `R`.
-    #[borsh_skip]
-    el: PhantomData<R>,
+    /// Stores the set of roles which have been granted to accounts.
+    grants: TreeMap<AccountId, UnorderedSet<R>>,
 }
 
-impl<R> ACLRoleAdmins<R>
+impl<R> Acl<R>
 where
     R: Copy + Into<u64> + BorshSerialize,
 {
@@ -116,7 +108,7 @@ where
 
         Self {
             admins,
-            el: PhantomData,
+            grants: TreeMap::new(ACLStorageKeys::Grants),
         }
     }
 
@@ -180,20 +172,6 @@ where
     fn renounce_admin(&mut self, role: R) -> bool {
         self.get_admins_set(role)
             .remove(&env::predecessor_account_id())
-    }
-}
-
-// TODO enable opt-in to make collections enumerable.
-#[derive(BorshDeserialize, BorshSerialize)]
-struct ACLRoleGrants<R> {
-    grants: LookupMap<AccountId, LookupSet<R>>,
-}
-
-impl<R> ACLRoleGrants<R> {
-    fn new() -> Self {
-        Self {
-            grants: LookupMap::new(ACLStorageKeys::Grants),
-        }
     }
 }
 
