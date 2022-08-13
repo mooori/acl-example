@@ -25,13 +25,17 @@ pub struct Counter {
 impl Counter {
     #[init]
     pub fn new() -> Self {
-        let mut acl = Acl::new();
-        let caller = env::predecessor_account_id();
-        acl.add_admin_unchecked(Role::L1, &caller);
-        acl.add_admin_unchecked(Role::L2, &caller);
-        acl.add_admin_unchecked(Role::L3, &caller);
+        let mut contract = Self {
+            counter: 0,
+            acl: Acl::new(),
+        };
 
-        Self { counter: 0, acl }
+        let caller = env::predecessor_account_id();
+        contract.acl.add_admin_unchecked(Role::L1, &caller);
+        contract.acl.add_admin_unchecked(Role::L2, &caller);
+        contract.acl.add_admin_unchecked(Role::L3, &caller);
+
+        contract
     }
 }
 
