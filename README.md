@@ -1,5 +1,5 @@
 # Purpose
-Provide a draft of how code should look after `ACL` from [`near-plugins`](https://github.com/aurora-is-near/near-plugins) was expanded.
+Provide a draft of how code should look after `ACL` from [`near-plugins`](https://github.com/aurora-is-near/near-plugins) was expanded. The `ACL` feature for `near-plugins` is currently being developed.
 
 The contract can be built with:
 
@@ -8,7 +8,7 @@ make build
 ```
 
 # `ACL` usage
-The `ACL` feature for `near-plugins` is currently being developed. For smart contract developers, using that feature should work like the following:
+For smart contract developers, using that feature should work like the following:
 
 ```rust
 use near_sdk::{env, near_bindgen, AccountId};
@@ -52,8 +52,9 @@ impl Counter {
     }
 
     /// Restrict call to _one_ role.
-    /// Having a separate attribute to check for a single role could make it
-    /// easier to optimize that case.
+    /// 
+    /// Having a separate attribute to check for a _single_ role could make it
+    /// easier to optimize that case. If not, keep only `acl_any`.
     #[acl_only(Role::L1)]
     pub fn foo2() {}
 
