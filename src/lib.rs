@@ -78,10 +78,13 @@ where
     /// the returned set will be lost.
     ///
     /// However, if there are admins for `role`, the returned set is a member of
-    /// internal storage and modifications will be persisted.
+    /// internal storage and modifications are persisted when wrapped in a
+    /// function that triggers writing to storage. See [returning derived data].
     ///
     /// To retrieve a set that will be saved to storage in either case, use
     /// `[get_or_insert_admins_set]`.
+    ///
+    /// [returning derived data]: https://www.near-sdk.io/contract-interface/contract-mutability#returning-derived-data
     pub fn get_admins_set(&self, role: R) -> UnorderedSet<AccountId> {
         match self.admins.get(&role) {
             Some(set) => set,
@@ -120,9 +123,10 @@ where
     /// If the caller is not and admin for `role`, `account_id` is not added to
     /// the set of admins and `None` is returned.
     pub fn add_admin(&mut self, role: R, account_id: &AccountId) -> Option<bool> {
-        // TODO discuss: two lookups happen here: is_admin(), add_admin_unchecked().
+        // TODO discuss: two lookups happen here: is_admin() + add_admin_unchecked().
         // What's more important: DRY+readability or micro optimization (avoid methods
-        // to bring the number of lookups down to one)? Same at other places.
+        // to bring the number of lookups down to one)? Same at other places which
+        // call `is_admin()` before doing a modifications.
         if !self.is_admin(role, &env::predecessor_account_id()) {
             return None;
         }
