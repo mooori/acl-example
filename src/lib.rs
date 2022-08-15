@@ -106,7 +106,7 @@ where
         }
     }
 
-    /// Copies the `AccountId`s.
+    /// Copies the `AccountId`s which are admin for `role`.
     pub fn get_admins(&self, role: R) -> Vec<AccountId> {
         self.get_admins_set(role).to_vec()
     }
@@ -117,8 +117,8 @@ where
     }
 
     /// Adds `account_id` to the set of admins for `role`, given that the caller
-    /// is an admin for `role`. Returns `Some(true)` if `account_id` was _not_
-    /// yet present in the set, otherwise `Some(false)`.
+    /// is an admin for `role`. Returns `Some(bool)` indicating whether
+    /// `account_id` was newly added to the set of admins for `role`.
     ///
     /// If the caller is not and admin for `role`, `account_id` is not added to
     /// the set of admins and `None` is returned.
@@ -135,6 +135,9 @@ where
 
     /// Adds `account_id` to the set of admins for `role` __without__ checking
     /// if the caller is and admin for `role`.
+    ///
+    /// Returns whether `account_id` was newly added to the set of admins for
+    /// `role`.
     pub fn add_admin_unchecked(&mut self, role: R, account_id: &AccountId) -> bool {
         self.get_or_insert_admins_set(role).insert(account_id)
     }
@@ -162,6 +165,89 @@ where
         // _not_ persisting them. So no need for `get_or_insert_admins_set`.
         self.get_admins_set(role)
             .remove(&env::predecessor_account_id())
+    }
+
+    fn new_grants_set(account_id: &AccountId) -> UnorderedSet<R> {
+        UnorderedSet::new(ACLStorageKeys::GrantsPerAccountId {
+            account_id_hash: env::sha256(account_id.as_bytes()),
+        })
+    }
+
+    /// Returns the set of roles that have been granted to `account_id`.
+    ///
+    /// The returned set may not be persisted to storage, in line with
+    /// [`get_admins_set`]. To be certain that the set will be stored, use
+    /// [`get_or_insert_grants_set`].
+    fn get_grants_set(&self, account_id: &AccountId) -> UnorderedSet<R> {
+        match self.grants.get(account_id) {
+            Some(set) => set,
+            None => Self::new_grants_set(account_id),
+        }
+    }
+
+    /// Similar to [`get_grants_set`], but inserting newly initialized sets into
+    /// the data structure written to storage. Use this method if modifications
+    /// to the returned set need to be persisted.
+    fn get_or_insert_grants_set(&mut self, account_id: &AccountId) -> UnorderedSet<R> {
+        match self.grants.get(account_id) {
+            Some(set) => set,
+            None => {
+                let set = Self::new_grants_set(account_id);
+                self.grants.insert(account_id, &set);
+                set
+            }
+        }
+    }
+
+    /// Copies the roles which were granted to `account_id`.
+    fn get_grants(&self, account_id: &AccountId) -> Vec<R> {
+        self.get_grants_set(account_id).to_vec()
+    }
+
+    /// Grants `role` to `account_id`, given that the caller is an admin for
+    /// `role`. Returns `Some(bool)` indicating wheter `role` was newly granted
+    /// to `account_id`.
+    ///
+    /// If the caller is not an admin for `role`, `account_id` is not granted
+    /// the role and `None` is returned.
+    fn grant_role(&mut self, role: R, account_id: &AccountId) -> Option<bool> {
+        if !self.is_admin(role, &env::predecessor_account_id()) {
+            return None;
+        }
+        Some(self.grant_role_unchecked(role, account_id))
+    }
+
+    /// Grants `role` to `account_id` __without__ checking if the caller is and
+    /// admin for `role`.
+    ///
+    /// Returns whether `role` was newly granted to `account_id`.
+    fn grant_role_unchecked(&mut self, role: R, account_id: &AccountId) -> bool {
+        self.get_or_insert_grants_set(account_id).insert(&role)
+    }
+
+    /// Revoke `role` from `account_id`. If the caller is an admin for `role`,
+    /// it returns `Some(bool)` indicating whether `account_id` was a grantee of
+    /// `role`.
+    ///
+    /// If the caller is not an admin for `role`, it returns `None` and the set
+    /// of grants is not modified.
+    fn revoke_role(&mut self, role: R, account_id: &AccountId) -> Option<bool> {
+        if !self.is_admin(role, &env::predecessor_account_id()) {
+            return None;
+        }
+        // If the set is empty, the modifications here a noops and we don't mind
+        // _not_ persisting them. So no need for `get_or_insert_grants_set`.
+        let mut set = self.get_grants_set(account_id);
+        Some(set.remove(&role))
+    }
+
+    /// Removes `role` from the set of roles granted to `account_id`. Returns
+    /// whether the role was previously granted to `account_id`.
+    fn renounce_role(&mut self, role: R) -> bool {
+        // If the set is empty, the modifications here a noops and we don't mind
+        // _not_ persisting them. So no need for `get_or_insert_admins_set`.
+        self.get_grants_set(&env::predecessor_account_id())
+            .remove(&role)
     }
 }
 
