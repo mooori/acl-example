@@ -94,7 +94,7 @@ where
 
     /// Similar to [`get_admins_set`], but inserting newly initialized sets into
     /// the data structure written to storage. Use this method if modifications
-    /// to the returned set need to persisted.
+    /// to the returned set need to be persisted.
     fn get_or_insert_admins_set(&mut self, role: R) -> UnorderedSet<AccountId> {
         match self.admins.get(&role) {
             Some(set) => set,
