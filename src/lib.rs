@@ -4,7 +4,7 @@
 // - discuss: should enumeration be opt-in or opt-out?
 
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::collections::{TreeMap, UnorderedSet};
+use near_sdk::collections::{UnorderedMap, UnorderedSet};
 use near_sdk::serde::Serialize;
 use near_sdk::serde_json;
 use near_sdk::{env, near_bindgen, AccountId, BorshStorageKey};
@@ -51,12 +51,12 @@ impl Counter {
 #[derive(BorshDeserialize, BorshSerialize)]
 struct Acl<R> {
     /// Stores the set of `AccountId`s which are admins for each role.
-    admins: TreeMap<R, UnorderedSet<AccountId>>,
+    admins: UnorderedMap<R, UnorderedSet<AccountId>>,
 
     /// Stores the set of roles which have been granted to accounts.
     // TODO use a bit field instead of `UnorderedSet`. To make testing if an
     // account has at least one of many roles more efficient.
-    grants: TreeMap<AccountId, UnorderedSet<R>>,
+    grants: UnorderedMap<AccountId, UnorderedSet<R>>,
 }
 
 impl<R> Acl<R>
@@ -65,8 +65,8 @@ where
 {
     pub fn new() -> Self {
         Self {
-            admins: TreeMap::new(ACLStorageKeys::Admins),
-            grants: TreeMap::new(ACLStorageKeys::Grants),
+            admins: UnorderedMap::new(ACLStorageKeys::Admins),
+            grants: UnorderedMap::new(ACLStorageKeys::Grants),
         }
     }
 
