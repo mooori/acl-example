@@ -146,22 +146,7 @@ where
     /// `role`.
     pub fn add_admin_unchecked(&mut self, role: R, account_id: &AccountId) -> bool {
         let result = self.get_or_insert_admins_set(role).insert(account_id);
-
-        // TODO create fn/macro to simplify emitting events
-        let event_ser = {
-            let event = AclEvent::new(
-                AclEventId::AdminAdded,
-                AclEventMetadata {
-                    role,
-                    account_id: account_id.clone(),
-                    predecessor: env::predecessor_account_id(),
-                },
-            );
-            serde_json::to_string(&event)
-                .unwrap_or_else(|_| env::panic_str("Failed to serialize Event"))
-        };
-        env::log_str(&event_ser);
-
+        AclEvent::new_from_env(AclEventId::AdminAdded, role, account_id.clone()).emit();
         result
     }
 
@@ -307,14 +292,40 @@ struct AclEvent<R> {
     data: AclEventMetadata<R>,
 }
 
-impl<R> AclEvent<R> {
-    fn new(acl_event_id: AclEventId, data: AclEventMetadata<R>) -> Self {
+impl<R> AclEvent<R>
+where
+    R: Serialize,
+{
+    fn new(id: AclEventId, data: AclEventMetadata<R>) -> Self {
         Self {
             standard: EVENT_STANDARD,
             version: EVENT_VERSION,
-            event: acl_event_id.name(),
+            event: id.name(),
             data,
         }
+    }
+
+    /// Constructor which reads predecessor's account id from the current
+    /// environment. Parameters `role` and `account_id` are passed on to
+    /// [`AclEventMetadata`].
+    fn new_from_env(id: AclEventId, role: R, account_id: AccountId) -> Self {
+        Self {
+            standard: EVENT_STANDARD,
+            version: EVENT_VERSION,
+            event: id.name(),
+            data: AclEventMetadata {
+                role,
+                account_id,
+                predecessor: env::predecessor_account_id(),
+            },
+        }
+    }
+
+    /// Emits the event by logging to the current environment.
+    fn emit(&self) {
+        let ser = serde_json::to_string(self)
+            .unwrap_or_else(|_| env::panic_str("Failed to serialize AclEvent"));
+        env::log_str(&ser)
     }
 }
 
