@@ -10,9 +10,7 @@ use near_sdk::serde_json;
 use near_sdk::{env, near_bindgen, AccountId, BorshStorageKey};
 
 /// Roles are represented by enum variants.
-#[derive(
-    Copy, Clone, PartialEq, Eq, PartialOrd, Ord, BorshDeserialize, BorshSerialize, Serialize,
-)]
+#[derive(Copy, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize)]
 #[serde(crate = "near_sdk::serde")]
 enum Role {
     L1,
@@ -61,7 +59,7 @@ struct Acl<R> {
 
 impl<R> Acl<R>
 where
-    R: Copy + Ord + BorshDeserialize + BorshSerialize + Serialize,
+    R: Copy + BorshDeserialize + BorshSerialize + Serialize,
 {
     pub fn new() -> Self {
         Self {
