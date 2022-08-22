@@ -12,6 +12,7 @@ use near_sdk::{env, near_bindgen, AccountId, BorshStorageKey};
 /// Roles are represented by enum variants.
 #[derive(Copy, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize)]
 #[serde(crate = "near_sdk::serde")]
+#[repr(u8)]
 enum Role {
     L1,
     L2,
@@ -29,17 +30,15 @@ pub struct Counter {
 impl Counter {
     #[init]
     pub fn new() -> Self {
-        let contract = Self {
+        let mut contract = Self {
             counter: 0,
             acl: Acl::new(),
         };
 
-        let _caller = env::predecessor_account_id();
-        /*
+        let caller = env::predecessor_account_id();
         contract.acl.add_admin_unchecked(Role::L1, &caller);
         contract.acl.add_admin_unchecked(Role::L2, &caller);
         contract.acl.add_admin_unchecked(Role::L3, &caller);
-        */
 
         contract
     }
@@ -50,11 +49,29 @@ impl Counter {
 /// with the corresponding name.
 #[derive(Copy, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize)]
 #[serde(crate = "near_sdk::serde")]
+#[repr(u8)]
 enum AclAdmin {
     Super,
     L1,
     L2,
     L3,
+}
+
+impl From<Role> for AclAdmin {
+    fn from(value: Role) -> Self {
+        match value {
+            Role::L1 => AclAdmin::L1,
+            Role::L2 => AclAdmin::L2,
+            Role::L3 => AclAdmin::L3,
+        }
+    }
+}
+
+impl Role {
+    /// Returns the `AclAdmin` variant responsible for a `Role`.
+    fn admin(self) -> AclAdmin {
+        AclAdmin::from(self)
+    }
 }
 
 bitflags! {
@@ -68,11 +85,11 @@ bitflags! {
     #[derive(BorshDeserialize, BorshSerialize)]
     struct AclPermissions: u128 {
         const SUPER_ADMIN = 0b00000001; // 01u128 == 1 << 0
-        const L1 = 0b00000010;         // 02u128 == 1 << 1
+        const L1 = 0b00000010;          // 02u128 == 1 << 1
         const L1_ADMIN = 0b00000100;    // 04u128 == 1 << 2
-        const L2 = 0b00001000;         // 08u128 == 1 << 3
+        const L2 = 0b00001000;          // 08u128 == 1 << 3
         const L2_ADMIN = 0b00010000;    // 16u128 == 1 << 4
-        const L3 = 0b00100000;         // 32u128 == 1 << 5
+        const L3 = 0b00100000;          // 32u128 == 1 << 5
         const L3_ADMIN = 0b01000000;    // 64u128 == 1 << 6
     }
 }
@@ -150,6 +167,21 @@ impl Acl {
                 permissions
             }
         }
+    }
+
+    /// Grants admin permissions for `role` to `account_id`, __without__
+    /// checking permissions of the caller.
+    ///
+    /// Returns whether `account_id` gained the admin permissions due to the
+    /// current invocation of this method.
+    fn add_admin_unchecked(&mut self, role: Role, account_id: &AccountId) -> bool {
+        let flag: AclPermissions = role.admin().into();
+        let mut permissions = self.get_or_insert_permissions(account_id);
+        let gains_permission = !permissions.contains(flag);
+        if gains_permission {
+            permissions.insert(flag);
+        }
+        gains_permission
     }
 }
 
