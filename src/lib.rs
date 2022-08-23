@@ -176,6 +176,23 @@ impl Acl {
             .contains(role.admin().into())
     }
 
+    /// Adds `account_id` the of admins for `role`, given that the
+    /// predecessor is an admin for `role`. Returns `Some(bool)` indicating
+    /// whether `account_id` has gained new admin permissions.
+    ///
+    /// If the predecessor is not and admin for `role`, `account_id` is not
+    /// added to the set of admins and `None` is returned.
+    fn add_admin(&mut self, role: Role, account_id: &AccountId) -> Option<bool> {
+        // TODO discuss: two lookups happen here: is_admin() + add_admin_unchecked().
+        // What's more important: DRY+readability or micro optimization (avoid methods
+        // to bring the number of lookups down to one)? Same at other places which
+        // call `is_admin()` before doing a modifications.
+        if !self.is_admin(role, &env::predecessor_account_id()) {
+            return None;
+        }
+        Some(self.add_admin_unchecked(role, account_id))
+    }
+
     /// Grants admin permissions for `role` to `account_id`, __without__
     /// checking permissions of the predecessor.
     ///
@@ -189,6 +206,28 @@ impl Acl {
             AclEvent::new_from_env(AclEventId::AdminAdded, role, account_id.clone()).emit();
         }
         newly_added
+    }
+
+    /// Revoke admin permissions for `role` from `account_id`. If the
+    /// predecessor is an admin for `role`, it returns `Some<bool>` indicating
+    /// whether `account_id` was an admin.
+    ///
+    /// If the predecessor is not an admin for `role`, it returns `None`
+    /// permissions are not modified.
+    fn revoke_admin(&mut self, role: Role, account_id: &AccountId) -> Option<bool> {
+        if !self.is_admin(role, &env::predecessor_account_id()) {
+            return None;
+        }
+        // If permissions are empty, modifications here are noops and we don't
+        // mind not storing them. Hence no need for `get_or_insert_permissions`.
+        let mut permissions = self.get_permissions(account_id);
+        let flag = role.admin().into();
+        let was_admin = permissions.contains(flag);
+        if was_admin {
+            permissions.remove(flag);
+            AclEvent::new_from_env(AclEventId::AdminRevoked, role, account_id.clone()).emit();
+        }
+        Some(was_admin)
     }
 }
 
@@ -263,7 +302,7 @@ where
 #[derive(Copy, Clone)]
 enum AclEventId {
     AdminAdded,
-    AdminRemoved,
+    AdminRevoked,
     RoleGranted,
     RoleRevoked,
     RoleRenounced,
@@ -278,7 +317,7 @@ impl AclEventId {
         // TODO let user change event prefix `acl_`
         match self {
             Self::AdminAdded => "acl_admin_added",
-            Self::AdminRemoved => "acl_admin_removed",
+            Self::AdminRevoked => "acl_admin_revoked",
             Self::RoleGranted => "acl_role_granted",
             Self::RoleRevoked => "acl_role_revoked",
             Self::RoleRenounced => "acl_role_renounced",
