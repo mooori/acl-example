@@ -169,19 +169,24 @@ impl Acl {
         }
     }
 
+    /// Returns a `bool` indicating if `account_id` is an admin for `role`.
+    fn is_admin(&self, role: Role, account_id: &AccountId) -> bool {
+        self.get_permissions(account_id)
+            .contains(role.admin().into())
+    }
+
     /// Grants admin permissions for `role` to `account_id`, __without__
-    /// checking permissions of the caller.
+    /// checking permissions of the predecessor.
     ///
-    /// Returns whether `account_id` gained the admin permissions due to the
-    /// current invocation of this method.
+    /// Returns whether `account_id` was newly added to the admins for `role`.
     fn add_admin_unchecked(&mut self, role: Role, account_id: &AccountId) -> bool {
         let flag: AclPermissions = role.admin().into();
         let mut permissions = self.get_or_insert_permissions(account_id);
-        let gains_permission = !permissions.contains(flag);
-        if gains_permission {
+        let newly_added = !permissions.contains(flag);
+        if newly_added {
             permissions.insert(flag);
         }
-        gains_permission
+        newly_added
     }
 }
 
