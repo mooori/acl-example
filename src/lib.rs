@@ -7,6 +7,7 @@ use bitflags::bitflags;
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::collections::UnorderedMap;
 use near_sdk::serde::Serialize;
+use near_sdk::serde_json;
 use near_sdk::{env, near_bindgen, AccountId, BorshStorageKey};
 
 /// Roles are represented by enum variants.
@@ -185,6 +186,7 @@ impl Acl {
         let newly_added = !permissions.contains(flag);
         if newly_added {
             permissions.insert(flag);
+            AclEvent::new_from_env(AclEventId::AdminAdded, role, account_id.clone()).emit();
         }
         newly_added
     }
@@ -196,4 +198,105 @@ impl Acl {
 #[derive(BorshStorageKey, BorshSerialize)]
 pub enum ACLStorageKeys {
     Permissions,
+}
+
+// TODO probably should be the near-plugins ACL standard (if we define one)
+const EVENT_STANDARD: &str = "nep279";
+const EVENT_VERSION: &str = "1.0.0";
+
+/// Represents a [NEP-297] event.
+///
+/// Using `'static &str` where possible to avoid allocations (there's only a
+/// small set of possible values for the corresponding fields).
+///
+/// [NEP-297]: https://nomicon.io/Standards/EventsFormat
+
+// TODO try using lifetime `'a` instead of `'static`.
+// TODO allow users emitting custom data together with events (in later version)
+#[derive(Serialize)]
+#[serde(crate = "near_sdk::serde")]
+struct AclEvent<R> {
+    standard: &'static str,
+    version: &'static str,
+    event: &'static str,
+    data: AclEventMetadata<R>,
+}
+
+impl<R> AclEvent<R>
+where
+    R: Serialize,
+{
+    fn new(id: AclEventId, data: AclEventMetadata<R>) -> Self {
+        Self {
+            standard: EVENT_STANDARD,
+            version: EVENT_VERSION,
+            event: id.name(),
+            data,
+        }
+    }
+
+    /// Constructor which reads predecessor's account id from the current
+    /// environment. Parameters `role` and `account_id` are passed on to
+    /// [`AclEventMetadata`].
+    fn new_from_env(id: AclEventId, role: R, account_id: AccountId) -> Self {
+        Self {
+            standard: EVENT_STANDARD,
+            version: EVENT_VERSION,
+            event: id.name(),
+            data: AclEventMetadata {
+                role,
+                account_id,
+                predecessor: env::predecessor_account_id(),
+            },
+        }
+    }
+
+    /// Emits the event by logging to the current environment.
+    fn emit(&self) {
+        let ser = serde_json::to_string(self)
+            .unwrap_or_else(|_| env::panic_str("Failed to serialize AclEvent"));
+        env::log_str(&ser)
+    }
+}
+
+/// Events resulting from ACL actions.
+#[derive(Copy, Clone)]
+enum AclEventId {
+    AdminAdded,
+    AdminRemoved,
+    RoleGranted,
+    RoleRevoked,
+    RoleRenounced,
+}
+
+impl AclEventId {
+    /// Returns the name to be used in the `event` field when formatting
+    /// according to NEP-297.
+    ///
+    /// Returning `&'static str` to avoid allocations when emitting events.
+    fn name(self) -> &'static str {
+        // TODO let user change event prefix `acl_`
+        match self {
+            Self::AdminAdded => "acl_admin_added",
+            Self::AdminRemoved => "acl_admin_removed",
+            Self::RoleGranted => "acl_role_granted",
+            Self::RoleRevoked => "acl_role_revoked",
+            Self::RoleRenounced => "acl_role_renounced",
+        }
+    }
+}
+
+/// Metadata emitted in NEP-297 event field `data`.
+
+// TODO use references to `AccountId` (avoid cloning); if it works with serde.
+// If `Deserialize` must be derived, probably won't work (out of the box).
+#[derive(Serialize)]
+#[serde(crate = "near_sdk::serde")]
+struct AclEventMetadata<R> {
+    /// The role related to the event.
+    role: R,
+    /// The account whose permissions are affected.
+    account_id: AccountId,
+    /// The account which originated the contract call.
+    predecessor: AccountId,
 }
