@@ -69,7 +69,7 @@ impl Counter {
         );
     }
 
-    // Some ACL methods should automatically be exposed on the contract:
+    // Some ACL methods should be automatically exposed on the contract:
 
     pub fn acl_is_admin(&self, role: Role, account_id: &AccountId) -> bool {
         self.acl.is_admin(role, account_id)
@@ -85,6 +85,10 @@ impl Counter {
 
     pub fn acl_renounce_admin(&mut self, role: Role) -> bool {
         self.acl.renounce_admin(role)
+    }
+
+    pub fn acl_has_role(&self, role: Role, account_id: &AccountId) -> bool {
+        self.acl.has_role(role, account_id)
     }
 
     pub fn acl_grant_role(&mut self, role: Role, account_id: &AccountId) -> Option<bool> {
@@ -280,6 +284,14 @@ impl Acl {
         }
 
         was_admin
+    }
+
+    /// Returns whether `account_id` has been granted `role`.
+    fn has_role(&self, role: Role, account_id: &AccountId) -> bool {
+        match self.permissions.get(account_id) {
+            Some(permissions) => permissions.contains(role.into()),
+            None => false,
+        }
     }
 
     /// Grants `role` to `account_id`, given that the predecessor is an admin
