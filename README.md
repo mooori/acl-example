@@ -31,7 +31,6 @@ pub struct Counter {
 
 #[near_bindgen]
 impl Counter {
-    /// Grant initial roles.
     #[init]
     pub fn new() -> Self {
         let mut contract = Self { counter: 0 };
@@ -45,25 +44,22 @@ impl Counter {
     }
 
     /// Checking roles within a method.
-    pub fn foo1() {
+    pub fn foo1(&self) {
         if self.acl.has_role(Role::L1, &env::predecessor_account_id()) {
             // ...
         }
     }
 
-    /// Restrict call to _one_ role.
-    /// 
-    /// Having a separate attribute to check for a _single_ role could make it
-    /// easier to optimize that case. If not, keep only `acl_any`.
-    #[acl_only(Role::L1)]
-    pub fn foo2() {}
+    /// Require caller to have the specified role.
+    #[acl_any(Role::L2)]
+    pub fn foo2(&self) {}
 
-    /// Make it possible to restrict call to _some_  roles?
+    /// Require caller to have at least one of the specified roles.
     #[acl_any(Role::L1, Role::L2)]
-    pub fn foo3() {}
+    pub fn foo3(&self) {}
 
-    /// Make it possible to restrict call to _all_ roles?
-    #[acl_all(Role)]
-    pub fn foo4() {}
+    /// Require caller to have all of the specified roles.
+    #[acl_all(Role::L1, Role::L3)]
+    pub fn foo4(&self) {}
 }
 ```
