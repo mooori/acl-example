@@ -6,22 +6,22 @@
 use bitflags::bitflags;
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::collections::UnorderedMap;
-use near_sdk::serde::Serialize;
+use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::serde_json;
-use near_sdk::{env, near_bindgen, AccountId, BorshStorageKey};
+use near_sdk::{env, near_bindgen, AccountId, BorshStorageKey, PanicOnDefault};
 
 /// Roles are represented by enum variants.
-#[derive(Copy, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Serialize)]
+#[derive(Copy, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
 #[serde(crate = "near_sdk::serde")]
 #[repr(u8)]
-enum Role {
+pub enum Role {
     L1,
     L2,
     L3,
 }
 
 #[near_bindgen]
-#[derive(BorshDeserialize, BorshSerialize)]
+#[derive(BorshDeserialize, BorshSerialize, PanicOnDefault)]
 pub struct Counter {
     counter: u64,
     acl: Acl,
@@ -42,6 +42,20 @@ impl Counter {
         contract.acl.add_admin_unchecked(Role::L3, &caller);
 
         contract
+    }
+
+    // Some ACL methods should automatically be exposed on the contract:
+
+    pub fn acl_is_admin(&self, role: Role, account_id: &AccountId) -> bool {
+        self.acl.is_admin(role, account_id)
+    }
+
+    pub fn acl_add_admin(&mut self, role: Role, account_id: &AccountId) -> Option<bool> {
+        self.acl.add_admin(role, account_id)
+    }
+
+    pub fn acl_revoke_admin(&mut self, role: Role, account_id: &AccountId) -> Option<bool> {
+        self.acl.revoke_admin(role, account_id)
     }
 }
 
@@ -248,15 +262,6 @@ impl<R> AclEvent<R>
 where
     R: Serialize,
 {
-    fn new(id: AclEventId, data: AclEventMetadata<R>) -> Self {
-        Self {
-            standard: EVENT_STANDARD,
-            version: EVENT_VERSION,
-            event: id.name(),
-            data,
-        }
-    }
-
     /// Constructor which reads predecessor's account id from the current
     /// environment. Parameters `role` and `account_id` are passed on to
     /// [`AclEventMetadata`].
