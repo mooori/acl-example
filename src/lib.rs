@@ -12,7 +12,7 @@ use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::collections::UnorderedMap;
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::serde_json;
-use near_sdk::{env, near_bindgen, require, AccountId, BorshStorageKey, PanicOnDefault};
+use near_sdk::{env, near_bindgen, require, AccountId, PanicOnDefault};
 
 /// Roles are represented by enum variants.
 #[derive(Copy, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
@@ -180,7 +180,8 @@ struct Acl {
 impl Acl {
     fn new() -> Self {
         Self {
-            permissions: UnorderedMap::new(ACLStorageKeys::Permissions),
+            // TODO allow devs to specify another prefix
+            permissions: UnorderedMap::new(b"_aclp".to_vec()),
         }
     }
 
@@ -369,14 +370,6 @@ impl Acl {
             format!("Account {} must have all roles in {:?}", account_id, target,)
         )
     }
-}
-
-// TODO discuss:
-// - Optionally allowing user to set storage keys is to avoid collisions?
-// - Still needed if using an enum (which should avoid collisions)?
-#[derive(BorshStorageKey, BorshSerialize)]
-pub enum ACLStorageKeys {
-    Permissions,
 }
 
 // TODO probably should be the near-plugins ACL standard (if we define one)
