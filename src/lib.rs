@@ -1,7 +1,8 @@
 // TODO
-// - after discussing events approach, log events in all fns modifying Acl state
-//   - Ideas for something more 'elegant' than `&'static str` to avoid allocs?
-// - discuss: should enumeration be opt-in or opt-out?
+// - add enumeration; should it be opt-in or opt-out?
+// - handle special cases of `Admin::Super`
+// - how to assign `AclAdmin::Super`?
+//   - auto-assign to caller of `new` or let developer assign it to accounts?
 
 use bitflags::bitflags;
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
@@ -56,6 +57,22 @@ impl Counter {
 
     pub fn acl_revoke_admin(&mut self, role: Role, account_id: &AccountId) -> Option<bool> {
         self.acl.revoke_admin(role, account_id)
+    }
+
+    pub fn acl_renounce_admin(&mut self, role: Role) -> bool {
+        self.acl.renounce_admin(role)
+    }
+
+    pub fn acl_grant_role(&mut self, role: Role, account_id: &AccountId) -> Option<bool> {
+        self.acl.grant_role(role, account_id)
+    }
+
+    pub fn acl_revoke_role(&mut self, role: Role, account_id: &AccountId) -> Option<bool> {
+        self.acl.revoke_role(role, account_id)
+    }
+
+    pub fn acl_renounce_role(&mut self, role: Role) -> bool {
+        self.acl.renounce_role(role)
     }
 }
 
@@ -213,18 +230,93 @@ impl Acl {
         if !self.is_admin(role, &env::predecessor_account_id()) {
             return None;
         }
+        Some(self.revoke_admin_unchecked(role, account_id))
+    }
 
-        let mut permissions = self.get_or_init_permissions(account_id);
+    /// Revokes admin rights for `role` from the calling account. Returns
+    /// whether the caller was an admin for `role`.
+    fn renounce_admin(&mut self, role: Role) -> bool {
+        self.revoke_admin_unchecked(role, &env::predecessor_account_id())
+    }
+
+    /// Revokes admin rights for `role` from `account_id` without checking any
+    /// permissions. Returns whether `account_id` was an admin for `role`.
+    fn revoke_admin_unchecked(&mut self, role: Role, account_id: &AccountId) -> bool {
         let flag: AclPermissions = role.admin().into();
+        let mut permissions = self.get_or_init_permissions(account_id);
 
         let was_admin = permissions.contains(flag);
-        if was_admin {
+        if !was_admin {
             permissions.remove(flag);
             self.permissions.insert(account_id, &permissions);
             AclEvent::new_from_env(AclEventId::AdminRevoked, role, account_id.clone()).emit();
         }
 
-        Some(was_admin)
+        was_admin
+    }
+
+    /// Grants `role` to `account_id`, given that the predecessor is an admin
+    /// for `role`. Returns `Some(bool)` indicating wheter `role` was newly
+    /// granted to `account_id`.
+    ///
+    /// If the predecessor is not an admin for `role`, `account_id` is not
+    /// granted the role and `None` is returned.
+    fn grant_role(&mut self, role: Role, account_id: &AccountId) -> Option<bool> {
+        if !self.is_admin(role, &env::predecessor_account_id()) {
+            return None;
+        }
+        Some(self.grant_role_unchecked(role, account_id))
+    }
+
+    /// Grants `role` to `account_id` __without__ checking any permissions.
+    /// Returns whether `role` was newly granted to `account_id`.
+    fn grant_role_unchecked(&mut self, role: Role, account_id: &AccountId) -> bool {
+        let flag: AclPermissions = role.into();
+        let mut permissions = self.get_or_init_permissions(account_id);
+
+        let is_new_grantee = !permissions.contains(flag);
+        if is_new_grantee {
+            permissions.insert(flag);
+            self.permissions.insert(account_id, &permissions);
+            AclEvent::new_from_env(AclEventId::RoleGranted, role, account_id.clone()).emit();
+        }
+
+        is_new_grantee
+    }
+
+    /// Revoke `role` from `account_id`. If the predecessor is an admin for
+    /// `role`, it returns `Some(bool)` indicating whether `account_id` was a
+    /// grantee of `role`.
+    ///
+    /// If the predecessor is not an admin for `role`, it returns `None` and
+    /// permissions are not modified.
+    fn revoke_role(&mut self, role: Role, account_id: &AccountId) -> Option<bool> {
+        if !self.is_admin(role, &env::predecessor_account_id()) {
+            return None;
+        }
+        Some(self.revoke_role_unchecked(role, account_id))
+    }
+
+    /// Revokes `role` from `account_id` without checking any permissions.
+    /// Returns whether `account_id` was a grantee of `role`.
+    fn revoke_role_unchecked(&mut self, role: Role, account_id: &AccountId) -> bool {
+        let flag: AclPermissions = role.into();
+        let mut permissions = self.get_or_init_permissions(account_id);
+
+        let was_grantee = permissions.contains(flag);
+        if was_grantee {
+            permissions.remove(flag);
+            self.permissions.insert(account_id, &permissions);
+            AclEvent::new_from_env(AclEventId::RoleRevoked, role, account_id.clone()).emit();
+        }
+
+        was_grantee
+    }
+
+    /// Revokes `role` from the calling account. Returns whether the caller was
+    /// a grantee of `role`.
+    fn renounce_role(&mut self, role: Role) -> bool {
+        self.revoke_role_unchecked(role, &env::predecessor_account_id())
     }
 }
 
@@ -293,7 +385,6 @@ enum AclEventId {
     AdminRevoked,
     RoleGranted,
     RoleRevoked,
-    RoleRenounced,
 }
 
 impl AclEventId {
@@ -308,7 +399,6 @@ impl AclEventId {
             Self::AdminRevoked => "acl_admin_revoked",
             Self::RoleGranted => "acl_role_granted",
             Self::RoleRevoked => "acl_role_revoked",
-            Self::RoleRenounced => "acl_role_renounced",
         }
     }
 }
