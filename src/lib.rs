@@ -136,44 +136,22 @@ impl Acl {
         }
     }
 
-    /// For an `account_id` which is not stored internally, a newly initialized
-    /// empty `AclPermissions` bitmask is returned. It will _not_ be written to
-    /// storage since it is not a member of any internal data structure. Changes
-    /// made to that value are lost.
-    ///
-    /// However, if `account_id` is already stored internally, changes made to
-    /// the returned value a persisted if wrapped in a function that triggers
-    /// writting to storage. See [returning derived data].
-    ///
-    /// To retrieve a value that will be saved to storage in either case, use
-    /// [`get_or_insert_permissions`].
-    ///
-    /// [returning derived data]: https://www.near-sdk.io/contract-interface/contract-mutability#returning-derived-data
-    fn get_permissions(&self, account_id: &AccountId) -> AclPermissions {
+    /// Returns the permissions of `account_id`. If there are no permissions
+    /// stored for `account_id`, it returns an empty, newly initialized set of
+    /// permissions.
+    fn get_or_init_permissions(&self, account_id: &AccountId) -> AclPermissions {
         match self.permissions.get(account_id) {
             Some(permissions) => permissions,
             None => AclPermissions::empty(),
         }
     }
 
-    /// Similar to [`get_permissions`], but inserting a newly initialized
-    /// `AclPermissions` bitmask into the data structure written to storage. Use
-    /// this method if modifications to the returned value need to be persisted.
-    fn get_or_insert_permissions(&mut self, account_id: &AccountId) -> AclPermissions {
-        match self.permissions.get(account_id) {
-            Some(permissions) => permissions,
-            None => {
-                let permissions = AclPermissions::empty();
-                self.permissions.insert(account_id, &permissions);
-                permissions
-            }
-        }
-    }
-
     /// Returns a `bool` indicating if `account_id` is an admin for `role`.
     fn is_admin(&self, role: Role, account_id: &AccountId) -> bool {
-        self.get_permissions(account_id)
-            .contains(role.admin().into())
+        match self.permissions.get(account_id) {
+            Some(permissions) => permissions.contains(role.admin().into()),
+            None => false,
+        }
     }
 
     /// Adds `account_id` the of admins for `role`, given that the
@@ -199,13 +177,16 @@ impl Acl {
     /// Returns whether `account_id` was newly added to the admins for `role`.
     fn add_admin_unchecked(&mut self, role: Role, account_id: &AccountId) -> bool {
         let flag: AclPermissions = role.admin().into();
-        let mut permissions = self.get_or_insert_permissions(account_id);
-        let newly_added = !permissions.contains(flag);
-        if newly_added {
+        let mut permissions = self.get_or_init_permissions(account_id);
+
+        let is_new_admin = !permissions.contains(flag);
+        if is_new_admin {
             permissions.insert(flag);
+            self.permissions.insert(account_id, &permissions);
             AclEvent::new_from_env(AclEventId::AdminAdded, role, account_id.clone()).emit();
         }
-        newly_added
+
+        is_new_admin
     }
 
     /// Revoke admin permissions for `role` from `account_id`. If the
@@ -218,15 +199,17 @@ impl Acl {
         if !self.is_admin(role, &env::predecessor_account_id()) {
             return None;
         }
-        // If permissions are empty, modifications here are noops and we don't
-        // mind not storing them. Hence no need for `get_or_insert_permissions`.
-        let mut permissions = self.get_permissions(account_id);
-        let flag = role.admin().into();
+
+        let mut permissions = self.get_or_init_permissions(account_id);
+        let flag: AclPermissions = role.admin().into();
+
         let was_admin = permissions.contains(flag);
         if was_admin {
             permissions.remove(flag);
+            self.permissions.insert(account_id, &permissions);
             AclEvent::new_from_env(AclEventId::AdminRevoked, role, account_id.clone()).emit();
         }
+
         Some(was_admin)
     }
 }
