@@ -48,6 +48,27 @@ impl Counter {
         contract
     }
 
+    // Methods that were decorated with ACL attributes (see README.md).
+
+    pub fn foo2(&self) {
+        self.acl
+            .check_any(AclPermissions::L2, &env::predecessor_account_id());
+    }
+
+    pub fn foo3(&self) {
+        self.acl.check_any(
+            AclPermissions::L1 | AclPermissions::L2,
+            &env::predecessor_account_id(),
+        );
+    }
+
+    pub fn foo4(&self) {
+        self.acl.check_all(
+            AclPermissions::L1 | AclPermissions::L3,
+            &env::predecessor_account_id(),
+        );
+    }
+
     // Some ACL methods should automatically be exposed on the contract:
 
     pub fn acl_is_admin(&self, role: Role, account_id: &AccountId) -> bool {
@@ -322,6 +343,31 @@ impl Acl {
     /// a grantee of `role`.
     fn renounce_role(&mut self, role: Role) -> bool {
         self.revoke_role_unchecked(role, &env::predecessor_account_id())
+    }
+
+    /// Panics if `account_id` does not have at least one of the permissions
+    /// specified in `target`.
+    fn check_any(&self, target: AclPermissions, account_id: &AccountId) {
+        let permissions = self.get_or_init_permissions(account_id);
+        // TODO check cost and output of `fmt()` for `AclPermissions`
+        require!(
+            permissions.intersects(target),
+            format!(
+                "Account {} has must have at least one role of {:?}",
+                account_id, target
+            ),
+        )
+    }
+
+    /// Panics if `account_id` does not have all of the permissions specified in
+    /// `target`.
+    fn check_all(&self, target: AclPermissions, account_id: &AccountId) {
+        let permissions = self.get_or_init_permissions(account_id);
+        // TODO check cost and output of `fmt()` for `AclPermissions`
+        require!(
+            permissions.contains(target),
+            format!("Account {} must have all roles in {:?}", account_id, target,)
+        )
     }
 }
 
