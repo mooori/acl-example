@@ -1,8 +1,11 @@
 // TODO
 // - add enumeration; should it be opt-in or opt-out?
-// - handle special cases of `Admin::Super`
 // - how to assign `AclAdmin::Super`?
 //   - auto-assign to caller of `new` or let developer assign it to accounts?
+// - Consider `AclAdmin::Super` before emitting events?
+//   - Assume alice.near has `AclPermissons::SUPER_ADMIN | AclPermissions::L1_ADMIN`.
+//     When flag L1_ADMIN is removed, alice.near effectively remains admin for
+//     L1 via SUPER_ADMIN.
 
 use bitflags::bitflags;
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
@@ -178,11 +181,20 @@ impl Acl {
     }
 
     /// Returns a `bool` indicating if `account_id` is an admin for `role`.
+    ///
+    /// Note that `AclAdmin::Super` grants admin rights for _every_ role. Hence,
+    /// if `account_id` has the corresponding permissions
+    /// [`AclPermissions::SUPER_ADMIN`], this function returns true for every
+    /// `Role`.
     fn is_admin(&self, role: Role, account_id: &AccountId) -> bool {
-        match self.permissions.get(account_id) {
-            Some(permissions) => permissions.contains(role.admin().into()),
-            None => false,
-        }
+        let permissions = {
+            match self.permissions.get(account_id) {
+                Some(permissions) => permissions,
+                None => return false,
+            }
+        };
+        permissions.contains(AclPermissions::SUPER_ADMIN)
+            || permissions.contains(role.admin().into())
     }
 
     /// Adds `account_id` the of admins for `role`, given that the
