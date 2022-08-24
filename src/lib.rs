@@ -12,7 +12,7 @@ use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
 use near_sdk::collections::UnorderedMap;
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::serde_json;
-use near_sdk::{env, near_bindgen, AccountId, BorshStorageKey, PanicOnDefault};
+use near_sdk::{env, near_bindgen, require, AccountId, BorshStorageKey, PanicOnDefault};
 
 /// Roles are represented by enum variants.
 #[derive(Copy, Clone, PartialEq, Eq, BorshDeserialize, BorshSerialize, Deserialize, Serialize)]
@@ -131,18 +131,11 @@ bitflags! {
 
 const MAX_BITFLAG_SHIFT: u8 = 127; // `AclPermissions` is u128
 
-#[inline]
-fn assert(condition: bool, error: &str) {
-    if !condition {
-        env::panic_str(error);
-    }
-}
-
 impl From<Role> for AclPermissions {
     fn from(value: Role) -> Self {
         // `+1` since flags for `Role` have a bit shifted by an odd number.
         let shift = (value as u8 * 2) + 1;
-        assert(shift <= MAX_BITFLAG_SHIFT, "Role is out of bounds");
+        require!(shift <= MAX_BITFLAG_SHIFT, "Role is out of bounds");
         AclPermissions::from_bits(1u128 << shift)
             .unwrap_or_else(|| env::panic_str("Failed to convert Role"))
     }
@@ -152,7 +145,7 @@ impl From<AclAdmin> for AclPermissions {
     fn from(value: AclAdmin) -> Self {
         // Flags for `AclAdmin` have a bit shifted by an even number.
         let shift = value as u8 * 2;
-        assert(shift <= MAX_BITFLAG_SHIFT, "AclAdmin is out of bounds");
+        require!(shift <= MAX_BITFLAG_SHIFT, "AclAdmin is out of bounds");
         AclPermissions::from_bits(1u128 << shift)
             .unwrap_or_else(|| env::panic_str("Failed to convert AclAdmin"))
     }
