@@ -9,7 +9,7 @@
 
 use bitflags::bitflags;
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::collections::UnorderedMap;
+use near_sdk::collections::{UnorderedMap, UnorderedSet};
 use near_sdk::serde::{Deserialize, Serialize};
 use near_sdk::serde_json;
 use near_sdk::{env, near_bindgen, require, AccountId, PanicOnDefault};
@@ -102,6 +102,14 @@ impl Counter {
     pub fn acl_renounce_role(&mut self, role: Role) -> bool {
         self.acl.renounce_role(role)
     }
+
+    pub fn acl_get_admins(&self, role: Role, skip: usize, limit: usize) -> Vec<AccountId> {
+        self.acl.get_bearers(role.admin().into(), skip, limit)
+    }
+
+    pub fn acl_get_role_grantees(&self, role: Role, skip: usize, limit: usize) -> Vec<AccountId> {
+        self.acl.get_bearers(role.into(), skip, limit)
+    }
 }
 
 /// Represents admin permissions for roles. Variant `Super` grants global admin
@@ -178,15 +186,44 @@ impl From<AclAdmin> for AclPermissions {
 
 #[derive(BorshDeserialize, BorshSerialize)]
 struct Acl {
+    /// Stores permissions per account.
     permissions: UnorderedMap<AccountId, AclPermissions>,
+    /// Stores the set of accounts that bear a permission.
+    bearers: UnorderedMap<AclPermissions, UnorderedSet<AccountId>>,
+}
+
+// TODO allow devs to specify another prefix
+/// Not to be used directly. Create prefixes with [`acl_new_storage_prefix`].
+const ACL_STORAGE_PREFIX: &[u8; 4] = b"_acl";
+
+/// Returns a new prefix by prepending `specifier` to [`ACL_COLLECTIONS_PREFIX`].
+fn acl_new_storage_prefix(specifier: AclStorageKeys) -> Vec<u8> {
+    let extra_bytes = specifier
+        .try_to_vec()
+        .unwrap_or_else(|_| env::panic_str("Failed to serialize storage key"));
+    [ACL_STORAGE_PREFIX, extra_bytes.as_slice()].concat()
+}
+
+/// Used to make storage prefixes unique.
+#[derive(BorshSerialize)]
+enum AclStorageKeys {
+    Permissions,
+    Bearers,
+    BearersSet { permission: AclPermissions },
 }
 
 impl Acl {
     fn new() -> Self {
         Self {
-            // TODO allow devs to specify another prefix
-            permissions: UnorderedMap::new(b"_aclp".to_vec()),
+            permissions: UnorderedMap::new(acl_new_storage_prefix(AclStorageKeys::Permissions)),
+            bearers: UnorderedMap::new(acl_new_storage_prefix(AclStorageKeys::Bearers)),
         }
+    }
+
+    fn new_bearers_set(permission: AclPermissions) -> UnorderedSet<AccountId> {
+        UnorderedSet::new(acl_new_storage_prefix(AclStorageKeys::BearersSet {
+            permission,
+        }))
     }
 
     /// Returns the permissions of `account_id`. If there are no permissions
@@ -245,6 +282,7 @@ impl Acl {
         if is_new_admin {
             permissions.insert(flag);
             self.permissions.insert(account_id, &permissions);
+            self.add_bearer(flag, account_id);
             AclEvent::new_from_env(AclEventId::AdminAdded, role, account_id.clone()).emit();
         }
 
@@ -280,6 +318,7 @@ impl Acl {
         if !was_admin {
             permissions.remove(flag);
             self.permissions.insert(account_id, &permissions);
+            self.remove_bearer(flag, account_id);
             AclEvent::new_from_env(AclEventId::AdminRevoked, role, account_id.clone()).emit();
         }
 
@@ -317,6 +356,7 @@ impl Acl {
         if is_new_grantee {
             permissions.insert(flag);
             self.permissions.insert(account_id, &permissions);
+            self.add_bearer(flag, account_id);
             AclEvent::new_from_env(AclEventId::RoleGranted, role, account_id.clone()).emit();
         }
 
@@ -346,6 +386,7 @@ impl Acl {
         if was_grantee {
             permissions.remove(flag);
             self.permissions.insert(account_id, &permissions);
+            self.remove_bearer(flag, account_id);
             AclEvent::new_from_env(AclEventId::RoleRevoked, role, account_id.clone()).emit();
         }
 
@@ -381,6 +422,38 @@ impl Acl {
             permissions.contains(target),
             format!("Account {} must have all roles in {:?}", account_id, target,)
         )
+    }
+
+    /// Adds `account_id` to the set of `permission` bearers.
+    fn add_bearer(&mut self, permission: AclPermissions, account_id: &AccountId) {
+        let mut set = match self.bearers.get(&permission) {
+            Some(set) => set,
+            None => Self::new_bearers_set(permission),
+        };
+        if let true = set.insert(account_id) {
+            self.bearers.insert(&permission, &set);
+        }
+    }
+
+    /// Removes `account_id` from the set of `permission` bearers.
+    fn remove_bearer(&mut self, permission: AclPermissions, account_id: &AccountId) {
+        let mut set = match self.bearers.get(&permission) {
+            Some(set) => set,
+            None => return, // nothing to do
+        };
+        if let true = set.remove(account_id) {
+            self.bearers.insert(&permission, &set);
+        }
+    }
+
+    /// Returns up to `limit` bearers of `permission`, skipping the first `skip`
+    /// items. Allows paginated retrieval of bearers.
+    fn get_bearers(&self, permission: AclPermissions, skip: usize, limit: usize) -> Vec<AccountId> {
+        let set = match self.bearers.get(&permission) {
+            Some(set) => set,
+            None => return vec![],
+        };
+        set.iter().skip(skip).take(limit).collect()
     }
 }
 
